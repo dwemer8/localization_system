@@ -15,7 +15,8 @@
 #include "BLEEddystoneTLM.h"
 #include "BLEEddystoneURL.h"
 
-#include <SoftwareSerial.h>
+//#include <SoftwareSerial.h>
+#include <HardwareSerial.h>
 
 const int ledPin1 =  14;
 const int ledPin2 =  26;
@@ -30,8 +31,8 @@ uint16_t beconUUID = 0xFEAA;
 #define ENDIAN_CHANGE_U16(x) ((((x)&0xFF00)>>8) + (((x)&0xFF)<<8))
 
 #define SLAVES_AMOUNT 2
-SoftwareSerial Slave1(13, 15);             //RX = 15, TX = 13
-SoftwareSerial Slave2(2, 4);            //RX = 2, TX = 4
+HardwareSerial Slave0(1);            //RX TX 
+HardwareSerial Slave1(2);            //RX TX
 
 char slaveChars[SLAVES_AMOUNT];
 String slaveStrings[SLAVES_AMOUNT]; 
@@ -47,22 +48,23 @@ int rssis[SLAVES_AMOUNT + 1] = {-100, -100, -100};
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   
     void onResult(BLEAdvertisedDevice advertisedDevice) {
-      std::string strServiceData = advertisedDevice.getServiceData();
+       std::string strServiceData = advertisedDevice.getServiceData();
        uint8_t cServiceData[100];
        strServiceData.copy((char *)cServiceData, strServiceData.length(), 0);
 
-       if (advertisedDevice.haveManufacturerData()==true) {
+       if (advertisedDevice.haveManufacturerData() == true) {
           std::string strManufacturerData = advertisedDevice.getManufacturerData();
-          
           uint8_t cManufacturerData[100];
           strManufacturerData.copy((char *)cManufacturerData, strManufacturerData.length(), 0);
           
-          if (strManufacturerData.length()==25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00 ) {
+          if (strManufacturerData.length() == 25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00) {
             BLEBeacon oBeacon = BLEBeacon();
             oBeacon.setData(strManufacturerData);
+            
             if (ENDIAN_CHANGE_U16(oBeacon.getMajor()) == 1) {
               int rssi = advertisedDevice.getRSSI();
               rssis[0] = rssi;
+              
               Serial.printf("ID: %04X Major: %d Minor: %d UUID: %s Power: %d\n",
                 oBeacon.getManufacturerId(),
                 ENDIAN_CHANGE_U16(oBeacon.getMajor()),
@@ -75,6 +77,63 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
        } 
 };
 
+void reception(HardwareSerial* Slave, int num) {
+  //Slave->listen();
+
+  if (Slave->available()) {
+    slaveChars[num] = Slave->read();
+    
+//    Serial.print(String(num) + " got:(" + String((int)slaveChars[num]) + ")");
+//    Serial.write(slaveChars[num]);
+//    Serial.print("\n");
+    
+    switch(slaveChars[num]) {
+      case ' ':
+        //Serial.print("[" + slaveStrings[num] + "]\n");
+        if (slaveStrings[num] == "ID") {
+          slaveStates[num] = id_reading;
+          //Serial.print(String(num) + " id\n");
+        }
+        else if (slaveStrings[num] == "PWR") {
+          slaveStates[num] = rssi_reading;
+          //Serial.print(String(num) + " rssi\n");
+
+        } else {
+          //Serial.print(String(num) + " number reading");
+          //for (int i = 0; i < slaveStrings[num].length(); i++) Serial.print(byte(slaveStrings[num][i]) + "|");
+          //Serial.print("\n");
+                   
+          switch (slaveStates[num]) {
+            case idle:
+              break;
+              
+            case id_reading:
+              //converting id from string to int
+              break;
+
+            case rssi_reading:
+              int rssi = slaveStrings[num].toInt();//converting rssi form sting to int
+              rssis[num + 1] = rssi; //writing rssi value to array
+              Serial.print(String(rssis[num + 1]) + " was written to the " + num + "\n");
+              break;
+          }
+        }
+
+        slaveStrings[num] = "";
+        break;
+        
+      case '\n':
+      case '\r':
+        //Serial.print("[" + slaveStrings[num] + "]\n");
+        slaveStrings[num] = "";
+        slaveStates[num] = idle;
+        break;
+
+      default:
+        slaveStrings[num] += String(slaveChars[num]);
+      }
+    }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -94,104 +153,18 @@ void setup() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);  // less or equal setInterval value
 
-  Slave1.begin(115200);
-  Slave2.begin(115200);
-
+//  Slave0.begin(115200);
+//  Slave1.begin(115200);
+  Slave0.begin(115200, SERIAL_8N1, 2, 4); 
+  Slave1.begin(115200, SERIAL_8N1, 19, 22); 
 }
 
 void loop() {
   BLEScanResults foundDevices = pBLEScan->start(scanTime);
   
-  Slave1.listen();
-  
-  if (Slave1.available()) {
-    slaveChars[0] = Slave1.read();
-    Serial.printf("1 got it\n");
-    switch(slaveChars[0]) {
-      case ' ':
-        if (slaveStrings[0] == "ID") {
-          slaveStates[0] = id_reading;
-        }
-        else if (slaveStrings[0] == "PWR") {
-          slaveStates[0] = rssi_reading;
-
-        } else {
-          switch (slaveStates[0]) {
-            case idle:
-              break;
-              
-            case id_reading:
-              //converting id from string to int
-              break;
-
-            case rssi_reading:
-              int rssi = slaveStrings[0].toInt();//converting rssi form sting to int
-              rssis[1] = rssi; //writing rssi value to array
-              break;
-          }
-
-        slaveStrings[0] = "";
-        break;
-        
-      case '\n':
-      case '\r':
-        slaveStrings[0] = "";
-        slaveStates[0] = idle;
-        break;
-
-      default:
-        slaveStrings[0] += String(slaveChars[1]);
-      }
-    }
-  }
-  
-  Slave2.listen();
-
-  if (Slave2.available()) {
-    slaveChars[1] = Slave2.read();
-    Serial.printf("2 got it:");
-    Serial.write(String(slaveChars[1]).toInt());
-    //Serial.print(String(slaveChars[1]));
-    Serial.printf("\n");
-//    switch(slaveChars[1]) {
-//      case ' ':
-//        if (slaveStrings[1] == "ID") {
-//          slaveStates[1] = id_reading;
-//          Serial.printf("2 id\n");
-//        }
-//        else if (slaveStrings[1] == "PWR") {
-//          slaveStates[1] = rssi_reading;
-//          Serial.printf("2 rssi\n");
-//
-//        } else {
-//          switch (slaveStates[1]) {
-//            case idle:
-//              break;
-//              
-//            case id_reading:
-//              //converting id from string to int
-//              break;
-//
-//            case rssi_reading:
-//              int rssi = slaveStrings[1].toInt();//converting rssi form sting to int
-//              rssis[2] = rssi; //writing rssi value to array
-//              break;
-//          }
-//        }
-//
-//        slaveStrings[1] = "";
-//        break;
-//        
-//      case '\n':
-//      case '\r':
-//        slaveStrings[1] = "";
-//        slaveStates[1] = idle;
-//        break;
-//
-//      default:
-//        slaveStrings[1] += String(slaveChars[1]);
-//      }
-    }
+  reception(&Slave0, 0);
+  reception(&Slave1, 1);
+    
   Serial.printf("%d, %d, %d\n", rssis[0], rssis[1], rssis[2]);
   digitalWrite(ledPin1, LOW);
   digitalWrite(ledPin2, LOW);
@@ -199,31 +172,42 @@ void loop() {
   digitalWrite(ledPin4, LOW);
   digitalWrite(ledPin5, LOW);
   digitalWrite(ledPin6, LOW);
-  if (-rssis[0]<-rssis[1] & -rssis[0]<-rssis[2]){
+
+  if (rssis[0] > -50) {
     digitalWrite(ledPin1, HIGH);
-    if (-rssis[1]<-rssis[2]) {
-      digitalWrite(ledPin5, HIGH);
-    }
-    else{
-      digitalWrite(ledPin4, HIGH);
-    }
-  }  
-  if (-rssis[1]<-rssis[0] & -rssis[1]<-rssis[2]){
     digitalWrite(ledPin2, HIGH);
-    if (rssis[0]>rssis[2]) {
-      digitalWrite(ledPin5, HIGH);
-    }
-    else{
-      digitalWrite(ledPin6, HIGH);
-    }
-    }
-  if (-rssis[2]<-rssis[0] & -rssis[2]<-rssis[1]){
     digitalWrite(ledPin3, HIGH);
-    if (-rssis[1]<-rssis[0]) {
-      digitalWrite(ledPin6, HIGH);
-    }
-    else{
-      digitalWrite(ledPin4, HIGH);
+    digitalWrite(ledPin4, HIGH);
+    digitalWrite(ledPin5, HIGH);
+    digitalWrite(ledPin6, HIGH);
+  
+  } else {
+    if (-rssis[0]<-rssis[1] & -rssis[0]<-rssis[2]){
+      digitalWrite(ledPin1, HIGH);
+      if (-rssis[1]<-rssis[2]) {
+        digitalWrite(ledPin5, HIGH);
+      }
+      else{
+        digitalWrite(ledPin4, HIGH);
+      }
+    }  
+    if (-rssis[1]<-rssis[0] & -rssis[1]<-rssis[2]){
+      digitalWrite(ledPin2, HIGH);
+      if (rssis[0]>rssis[2]) {
+        digitalWrite(ledPin5, HIGH);
+      }
+      else{
+        digitalWrite(ledPin6, HIGH);
+      }
+      }
+    if (-rssis[2]<-rssis[0] & -rssis[2]<-rssis[1]){
+      digitalWrite(ledPin3, HIGH);
+      if (-rssis[1]<-rssis[0]) {
+        digitalWrite(ledPin6, HIGH);
+      }
+      else{
+        digitalWrite(ledPin4, HIGH);
+      }
     }
   }
 }

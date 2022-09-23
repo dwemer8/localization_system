@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 #include <SoftwareSerial.h>
+#include <HardwareSerial.h>
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -16,7 +17,8 @@
 #include "BLEEddystoneTLM.h"
 #include "BLEEddystoneURL.h"
 
-SoftwareSerial Master(13, 15); //RX, TX
+//SoftwareSerial Master(12, 13); //RX, TX
+HardwareSerial SerialPort(1); // use UART1
 
 BLEScan* pBLEScan;
 int scanTime = 1; //In seconds
@@ -40,7 +42,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
             BLEBeacon oBeacon = BLEBeacon();
             oBeacon.setData(strManufacturerData);
             if (ENDIAN_CHANGE_U16(oBeacon.getMajor()) == 1) {
-              Master.printf("ID %04X PWR %d\n", 
+              SerialPort.printf("ID %04X PWR %d \n", 
                 oBeacon.getManufacturerId(), 
                 advertisedDevice.getRSSI()
                 );
@@ -62,20 +64,21 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 void setup() {
   Serial.begin(115200);
   Serial.print("Port started");
-  Master.begin(115200);
-  Master.print("Port started");
 
-//  BLEDevice::init("");
-//  pBLEScan = BLEDevice::getScan(); //create new scan
-//  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-//  pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
-//  pBLEScan->setInterval(100);
-//  pBLEScan->setWindow(99);  // less or equal setInterval value
+  BLEDevice::init("");
+  pBLEScan = BLEDevice::getScan(); //create new scan
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(99);  // less or equal setInterval value
+
+  SerialPort.begin(115200, SERIAL_8N1, 2, 4); 
 }
 
 void loop() {
-  //BLEScanResults foundDevices = pBLEScan->start(scanTime);
-  Master.print("ID " + String(0) + " PWR " + String(-200) + "\n");
-  Serial.print("ID " + String(0) + " PWR " + String(-200) + "\n");
-  delay(1000);
+  BLEScanResults foundDevices = pBLEScan->start(scanTime);
+  
+//  Serial.print("ID " + String(0) + " PWR " + String(-200) + " \n");
+//  SerialPort.print("ID " + String(0) + " PWR " + String(-200) + " \n");
+//  delay(1000);
 }
