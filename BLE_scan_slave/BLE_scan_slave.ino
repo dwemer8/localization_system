@@ -25,28 +25,31 @@ int scanTime = 1; //In seconds
 uint16_t beconUUID = 0xFEAA;
 #define ENDIAN_CHANGE_U16(x) ((((x)&0xFF00)>>8) + (((x)&0xFF)<<8))
 
+//receiving signal from beacon
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-  
     void onResult(BLEAdvertisedDevice advertisedDevice) {
-      std::string strServiceData = advertisedDevice.getServiceData();
+       std::string strServiceData = advertisedDevice.getServiceData();
        uint8_t cServiceData[100];
        strServiceData.copy((char *)cServiceData, strServiceData.length(), 0);
 
-       if (advertisedDevice.haveManufacturerData()==true) {
+       if (advertisedDevice.haveManufacturerData() == true) {
           std::string strManufacturerData = advertisedDevice.getManufacturerData();
           
           uint8_t cManufacturerData[100];
           strManufacturerData.copy((char *)cManufacturerData, strManufacturerData.length(), 0);
           
-          if (strManufacturerData.length()==25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00 ) {
+          if (strManufacturerData.length()==25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00) {
             BLEBeacon oBeacon = BLEBeacon();
             oBeacon.setData(strManufacturerData);
+            
             if (ENDIAN_CHANGE_U16(oBeacon.getMajor()) == 1) {
-              SerialPort.printf("ID %04X PWR %d \n", 
+              //Sending data to the master
+              SerialPort.printf("ID %04X PWR %d \n", //padding with zeroes, 4-symbols length, hex; decimal
                 oBeacon.getManufacturerId(), 
                 advertisedDevice.getRSSI()
                 );
-                            
+
+              //Debug output
               Serial.printf("ID: %04X Major: %d Minor: %d UUID: %s Power: %d\n",
                 oBeacon.getManufacturerId(),
                 ENDIAN_CHANGE_U16(oBeacon.getMajor()),
@@ -69,8 +72,20 @@ void setup() {
   pBLEScan = BLEDevice::getScan(); //create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);  // less or equal setInterval value
+
+  /*!< Scan interval. This is defined as the time interval from
+  when the Controller started its last LE scan until it begins the subsequent LE scan.
+  Range: 0x0004 to 0x4000 Default: 0x0010 (10 ms)
+  Time = N * 0.625 msec
+  Time Range: 2.5 msec to 10.24 seconds*/
+  pBLEScan->setInterval(160);
+
+  /*!< Scan window. The duration of the LE scan. LE_Scan_Window
+  shall be less than or equal to LE_Scan_Interval
+  Range: 0x0004 to 0x4000 Default: 0x0010 (10 ms) 4 to 16384 (10240 ms)
+  Time = N * 0.625 msec
+  Time Range: 2.5 msec to 10240 msec */
+  pBLEScan->setWindow(159);  // less or equal setInterval value, 
 
   SerialPort.begin(115200, SERIAL_8N1, 2, 4); 
 }

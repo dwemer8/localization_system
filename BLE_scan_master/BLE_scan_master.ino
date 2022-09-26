@@ -43,10 +43,9 @@ enum state_type {
 };
 state_type slaveStates[SLAVES_AMOUNT] = {idle, idle};
 
-int rssis[SLAVES_AMOUNT + 1] = {-100, -100, -100};
+int rssis[SLAVES_AMOUNT + 1] = {-1000, -1000, -1000};
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-  
     void onResult(BLEAdvertisedDevice advertisedDevice) {
        std::string strServiceData = advertisedDevice.getServiceData();
        uint8_t cServiceData[100];
@@ -139,6 +138,8 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Scanning...");
 
+//  ledcSetup(0, 5000, 12);
+//  ledcAttachPin(13, 0);
   pinMode(ledPin1, OUTPUT);
   pinMode(ledPin2, OUTPUT);
   pinMode(ledPin3, OUTPUT);
@@ -150,8 +151,8 @@ void setup() {
   pBLEScan = BLEDevice::getScan(); //create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);  // less or equal setInterval value
+  pBLEScan->setInterval(160);
+  pBLEScan->setWindow(159);  // less or equal setInterval value
 
 //  Slave0.begin(115200);
 //  Slave1.begin(115200);
@@ -164,7 +165,8 @@ void loop() {
   
   reception(&Slave0, 0);
   reception(&Slave1, 1);
-    
+
+  //ledcWrite(0, val); //0 < val < 4096  
   Serial.printf("%d, %d, %d\n", rssis[0], rssis[1], rssis[2]);
   digitalWrite(ledPin1, LOW);
   digitalWrite(ledPin2, LOW);
