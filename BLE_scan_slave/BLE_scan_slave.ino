@@ -3,8 +3,6 @@
    Ported to Arduino ESP32 by Evandro Copercini
 */
 
-
-
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 #include <HardwareSerial.h>
@@ -17,52 +15,19 @@
 #include "BLEEddystoneTLM.h"
 #include "BLEEddystoneURL.h"
 
-//SoftwareSerial Master(12, 13); //RX, TX
-HardwareSerial SerialPort(1); // use UART1
-
+//BLE definitions
 BLEScan* pBLEScan;
 int scanTime = 1; //In seconds
-uint16_t beconUUID = 0xFEAA;
+uint16_t beaconUUID = 0xFEAA;
 #define ENDIAN_CHANGE_U16(x) ((((x)&0xFF00)>>8) + (((x)&0xFF)<<8))
 
-//receiving signal from beacon
+//class for receiving signal from beacon
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-       std::string strServiceData = advertisedDevice.getServiceData();
-       uint8_t cServiceData[100];
-       strServiceData.copy((char *)cServiceData, strServiceData.length(), 0);
-
-       if (advertisedDevice.haveManufacturerData() == true) {
-          std::string strManufacturerData = advertisedDevice.getManufacturerData();
-          
-          uint8_t cManufacturerData[100];
-          strManufacturerData.copy((char *)cManufacturerData, strManufacturerData.length(), 0);
-          
-          if (strManufacturerData.length()==25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00) {
-            BLEBeacon oBeacon = BLEBeacon();
-            oBeacon.setData(strManufacturerData);
-            
-            if (ENDIAN_CHANGE_U16(oBeacon.getMajor()) == 1) {
-              //Sending data to the master
-              SerialPort.printf("ID %04X PWR %d \n", //padding with zeroes, 4-symbols length, hex; decimal
-                oBeacon.getManufacturerId(), 
-                advertisedDevice.getRSSI()
-                );
-
-              //Debug output
-              Serial.printf("ID: %04X Major: %d Minor: %d UUID: %s Power: %d\n",
-                oBeacon.getManufacturerId(),
-                ENDIAN_CHANGE_U16(oBeacon.getMajor()),
-                ENDIAN_CHANGE_U16(oBeacon.getMinor()),
-                oBeacon.getProximityUUID().toString().c_str(),
-                advertisedDevice.getRSSI()
-                );
-              }
-            }
-          }
-       } 
+    void onResult(BLEAdvertisedDevice advertisedDevice);
 };
 
+//UART definitions
+HardwareSerial SerialPort(1); // use UART1
 
 void setup() {
   Serial.begin(115200);
@@ -92,8 +57,41 @@ void setup() {
 
 void loop() {
   BLEScanResults foundDevices = pBLEScan->start(scanTime);
-  
-//  Serial.print("ID " + String(0) + " PWR " + String(-200) + " \n");
-//  SerialPort.print("ID " + String(0) + " PWR " + String(-200) + " \n");
-//  delay(1000);
+}
+
+void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
+   std::string strServiceData = advertisedDevice.getServiceData();
+   uint8_t cServiceData[100];
+   strServiceData.copy((char *)cServiceData, strServiceData.length(), 0);
+
+   if (advertisedDevice.haveManufacturerData() == true) {
+      std::string strManufacturerData = advertisedDevice.getManufacturerData();
+      
+      uint8_t cManufacturerData[100];
+      strManufacturerData.copy((char *)cManufacturerData, strManufacturerData.length(), 0);
+      
+      if (strManufacturerData.length()==25 && cManufacturerData[0] == 0x4C  && cManufacturerData[1] == 0x00) {
+        BLEBeacon oBeacon = BLEBeacon();
+        oBeacon.setData(strManufacturerData);
+        
+        if (ENDIAN_CHANGE_U16(oBeacon.getMajor()) == 1) {
+          int manufacturerID = oBeacon.getManufacturerId(), 
+              rssi = advertisedDevice.getRSSI();
+          //Sending data to the master
+          SerialPort.printf("ID %04X PWR %d \n", //padding with zeroes, 4-symbols length, hex; decimal
+            manufacturerID, 
+            rssi
+            );
+
+          //Debug output
+          Serial.printf("ID: %04X Major: %d Minor: %d UUID: %s Power: %d\n",
+            manufacturerID,
+            ENDIAN_CHANGE_U16(oBeacon.getMajor()),
+            ENDIAN_CHANGE_U16(oBeacon.getMinor()),
+            oBeacon.getProximityUUID().toString().c_str(),
+            rssi
+            );
+         }
+      }
+   }
 }
