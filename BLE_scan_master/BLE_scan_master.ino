@@ -3,8 +3,8 @@
    Ported to Arduino ESP32 by Evandro Copercini
 */
 
-
-
+#include <map>
+#include <String>
 #include <Arduino.h>
 #include <HardwareSerial.h>
 
@@ -17,7 +17,9 @@
 #include "BLEEddystoneURL.h"
 
 #include "pwr2distance.h"
+#include "trilateration.h"
 
+//Definitions -------------------------------------------------------------------------
 //BLE definitions
 BLEScan* pBLEScan;
 int scanTime = 1; //In seconds
@@ -48,28 +50,37 @@ void reception(HardwareSerial* Slave, int num);
 //Data definitions
 int rssis[SLAVES_AMOUNT + 1] = {0, 0, 0};
 double distances[SLAVES_AMOUNT + 1] = {1, 1, 1}; //in meters
+int phi2direction(double phi);
+int r2ring(double r);
+
 
 //Output definitions
-const int ledPin1 =  14;
-const int ledPin2 =  26;
-const int ledPin3 =  33;
-const int ledPin4 =  27;
-const int ledPin5 =  32;
-const int ledPin6 =  25;
+const int ledRB =  14;// right bottom
+const int ledRM =  27;// right middle
+const int ledRT =  33;// rigth top
+const int ledLT =  25;// left top
+const int ledLM =  26;// left middle
+const int ledLB =  32;// left bottom
+const int leds[] = {ledRB, ledRM, ledRT, ledLT, ledLM, ledLB};
+const int LEDS_AMOUNT = 6;
+const int freq = 5000;
+const int resolution = 8;
+
+void displayPositionOnLEDs(pointPolar2D worker);
+void displayPositionOnLEDs(point3D worker);
 
 
+//Main part -------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
   Serial.println("Scanning...");
 
-//  ledcSetup(0, 5000, 12);
-//  ledcAttachPin(13, 0);
-  pinMode(ledPin1, OUTPUT);
-  pinMode(ledPin2, OUTPUT);
-  pinMode(ledPin3, OUTPUT);
-  pinMode(ledPin4, OUTPUT);
-  pinMode(ledPin5, OUTPUT);
-  pinMode(ledPin6, OUTPUT);
+  for (int i = 0; i < LEDS_AMOUNT; ++i) {
+    ledcSetup(i, freq, resolution); //channel, freq, res
+    ledcAttachPin(leds[i], i); //GPIO, channel
+    ledcWrite(i, 255); //channel, 0 <= power < 2^resolution
+    //  pinMode(leds[i], OUTPUT);
+  }
   
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan(); //create new scan
@@ -78,8 +89,6 @@ void setup() {
   pBLEScan->setInterval(160);
   pBLEScan->setWindow(159);  // less or equal setInterval value
 
-//  Slave0.begin(115200);
-//  Slave1.begin(115200);
   Slave0.begin(115200, SERIAL_8N1, 2, 4); 
   Slave1.begin(115200, SERIAL_8N1, 19, 22); 
 }
@@ -93,18 +102,32 @@ void loop() {
 
   for (int i = 0; i < SLAVES_AMOUNT + 1; ++i) distances[i] = pwr2dist(rssis[i]);
 
-  Serial.printf("pwr: %d, %d, %d; dist: %lf, %lf, %lf\n", 
+  point3D worker = trilaterate3DspheresInPlane(distances[0], distances[1], distances[2]);
+  pointCartesian2D workerCart2D = {worker.x, worker.y};
+  pointPolar2D workerPol2D = cart2pol(workerCart2D);
+  
+  Serial.printf("pwr: %d, %d, %d; "
+                "dist: %.3lf, %.3lf, %.3lf; "
+                "worker_cart: %.3lf, %.3lf, %.3lf; "
+                "worker_polar: %.3lf, %.3lf; \n", 
                 rssis[0], 
                 rssis[1], 
                 rssis[2],
                 distances[0],
                 distances[1],
-                distances[2]);
+                distances[2],
+                worker.x,
+                worker.y,
+                worker.z,
+                workerPol2D.r,
+                workerPol2D.phi
+                );
   
-  //ledcWrite(0, val); //0 < val < 4096  
-  displayPWRonLEDs();
+  displayPositionOnLEDs(worker);
+  //displayPWRonLEDs();
 }
 
+//Functions -------------------------------------------------------------------------
 void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
   std::string strServiceData = advertisedDevice.getServiceData();
   uint8_t cServiceData[100];
@@ -192,48 +215,107 @@ void reception(HardwareSerial* Slave, int num) {
     }
 }
 
+int phi2direction(double phi) {
+  if (-150 <= phi && phi <= -90) {
+    return 5;
+  } else if (-90 <= phi && phi <= -30) {
+    return 0;
+  } else if (-30 <= phi && phi <= 30) {
+    return 1;
+  } else if (30 <= phi && phi <= 90) {
+    return 2;
+  } else if (90 <= phi && phi <= 150) {
+    return 3;
+  } else {
+    return 4;
+  }
+}
+
+int r2ring(double r) {
+  if (r < 2) {
+    return -1;
+  } else if (r < 5) {
+    return 0;
+  } else if (r < 10) {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+
+void displayPositionOnLEDs(point3D worker) {
+  pointCartesian2D workerCart2D = {worker.x, worker.y};
+  displayPositionOnLEDs(cart2pol(workerCart2D));
+}
+
+void displayPositionOnLEDs(pointPolar2D worker) {
+  int ring = r2ring(worker.r), 
+      dir = phi2direction(worker.phi);
+  Serial.printf("ring: %d, dir: %d ",
+                ring,
+                dir);
+
+  int ledPowers[LEDS_AMOUNT] = {0, 0, 0, 0, 0, 0};
+  if (ring == -1) {
+    for (int i = 0; i < LEDS_AMOUNT; i++) ledPowers[i] = 255;
+    
+  } else {
+    ledPowers[dir] = (int)((2 - ring)/2.0*255.0);
+  }
+  
+  Serial.printf("LEDs: ");
+  for (int i = 0; i < LEDS_AMOUNT; ++i) {
+    ledcWrite(i, ledPowers[i]);
+    
+    Serial.printf("%d=%d ",
+                  i,
+                  ledPowers[i]);
+  }
+  Serial.printf("\n");
+}
+
 void displayPWRonLEDs() {
-  digitalWrite(ledPin1, LOW);
-  digitalWrite(ledPin2, LOW);
-  digitalWrite(ledPin3, LOW);
-  digitalWrite(ledPin4, LOW);
-  digitalWrite(ledPin5, LOW);
-  digitalWrite(ledPin6, LOW);
+  digitalWrite(ledRB, LOW);
+  digitalWrite(ledRM, LOW);
+  digitalWrite(ledRT, LOW);
+  digitalWrite(ledLT, LOW);
+  digitalWrite(ledLM, LOW);
+  digitalWrite(ledLB, LOW);
 
   if (rssis[0] > -50) {
-    digitalWrite(ledPin1, HIGH);
-    digitalWrite(ledPin2, HIGH);
-    digitalWrite(ledPin3, HIGH);
-    digitalWrite(ledPin4, HIGH);
-    digitalWrite(ledPin5, HIGH);
-    digitalWrite(ledPin6, HIGH);
+    digitalWrite(ledRB, HIGH);
+    digitalWrite(ledRM, HIGH);
+    digitalWrite(ledRT, HIGH);
+    digitalWrite(ledLT, HIGH);
+    digitalWrite(ledLM, HIGH);
+    digitalWrite(ledLB, HIGH);
   
   } else {
     if (-rssis[0]<-rssis[1] & -rssis[0]<-rssis[2]){
-      digitalWrite(ledPin1, HIGH);
+      digitalWrite(ledRB, HIGH);
       if (-rssis[1]<-rssis[2]) {
-        digitalWrite(ledPin5, HIGH);
+        digitalWrite(ledLM, HIGH);
       }
       else{
-        digitalWrite(ledPin4, HIGH);
+        digitalWrite(ledLT, HIGH);
       }
     }  
     if (-rssis[1]<-rssis[0] & -rssis[1]<-rssis[2]){
-      digitalWrite(ledPin2, HIGH);
+      digitalWrite(ledRM, HIGH);
       if (rssis[0]>rssis[2]) {
-        digitalWrite(ledPin5, HIGH);
+        digitalWrite(ledLM, HIGH);
       }
       else{
-        digitalWrite(ledPin6, HIGH);
+        digitalWrite(ledLB, HIGH);
       }
       }
     if (-rssis[2]<-rssis[0] & -rssis[2]<-rssis[1]){
-      digitalWrite(ledPin3, HIGH);
+      digitalWrite(ledRT, HIGH);
       if (-rssis[1]<-rssis[0]) {
-        digitalWrite(ledPin6, HIGH);
+        digitalWrite(ledLB, HIGH);
       }
       else{
-        digitalWrite(ledPin4, HIGH);
+        digitalWrite(ledLT, HIGH);
       }
     }
   }
